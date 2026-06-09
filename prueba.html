@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>GMC Prueba</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Arial,sans-serif;background:#f5f5f5;padding:1rem;}
+.card{background:#fff;border-radius:8px;padding:1.5rem;max-width:400px;margin:0 auto;}
+h2{color:#7E0002;margin-bottom:1rem;}
+input{width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:15px;margin-bottom:1rem;}
+.status{padding:10px;border-radius:6px;margin-bottom:1rem;font-size:13px;}
+.ok{background:#EAF3DE;color:#3B6D11;}
+.error{background:#FCEBEB;color:#A32D2D;}
+.pending{background:#f1f1f1;color:#666;}
+.photo-area{border:2px dashed #ccc;border-radius:8px;min-height:140px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;margin-bottom:1rem;overflow:hidden;}
+.photo-area img,.photo-area video{width:100%;height:140px;object-fit:cover;}
+button.main{width:100%;padding:12px;background:#7E0002;color:#fff;border:none;border-radius:6px;font-size:16px;font-weight:700;cursor:pointer;}
+button.main:disabled{opacity:0.4;}
+button.sec{width:100%;padding:10px;background:#fff;color:#7E0002;border:1.5px solid #7E0002;border-radius:6px;font-size:14px;cursor:pointer;margin-top:8px;}
+.hidden{display:none;}
+.success{text-align:center;padding:2rem;}
+.success h2{font-size:22px;}
+</style>
+</head>
+<body>
+<div class="card">
+  <div id="formScreen">
+    <h2>GMC · Prueba de Asistencia</h2>
+    <input type="text" id="nombre" placeholder="Tu nombre completo" oninput="check()"/>
+    <div id="gpsStatus" class="status pending">📍 Obteniendo ubicación...</div>
+    <div class="photo-area" id="photoArea" onclick="areaClick()">
+      <div id="photoOverlay">📷 Toca para abrir cámara</div>
+    </div>
+    <button class="sec hidden" id="snapBtn" onclick="snap()">📸 Tomar foto</button>
+    <button class="sec hidden" id="retryBtn" onclick="retry()">🔄 Repetir foto</button>
+    <button class="main" id="submitBtn" onclick="enviar()" disabled>REGISTRAR</button>
+  </div>
+  <div id="successScreen" class="success hidden">
+    <div style="font-size:48px">✅</div>
+    <h2>¡Registro exitoso!</h2>
+    <p id="successMsg" style="margin-top:8px;color:#666;font-size:14px;"></p>
+    <button class="main" style="margin-top:1rem;" onclick="reiniciar()">NUEVO REGISTRO</button>
+  </div>
+</div>
+<script>
+const SHEETS_URL='https://script.google.com/macros/s/AKfycbwZHI7SLSEfYrM8BKXR9RfnUHGifCqOB9U0E7DHFkc5i2COjgV3MHm8PibL9m7anzlM/exec';
+const OBRA_LAT=19.2887414, OBRA_LNG=-99.2153195, RADIO_M=300;
+let gpsOk=false,fotoOk=false,coords=null,foto=null,stream=null,camOn=false;
+
+function dist(a,b,c,d){
+  const R=6371000,dL=(c-a)*Math.PI/180,dG=(d-b)*Math.PI/180;
+  const x=Math.sin(dL/2)*Math.sin(dL/2)+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dG/2)*Math.sin(dG/2);
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+function gps(){
+  if(!navigator.geolocation){setG(false,'GPS no disponible');return;}
+  navigator.geolocation.getCurrentPosition(p=>{
+    coords={lat:p.coords.latitude,lng:p.coords.longitude};
+    const d=dist(coords.lat,coords.lng,OBRA_LAT,OBRA_LNG);
+    d<=RADIO_M?setG(true,'✅ Ubicación verificada ('+Math.round(d)+' m)'):setG(false,'❌ Fuera del área ('+Math.round(d)+' m de distancia)');
+  },()=>setG(false,'❌ No se pudo obtener ubicación'),{enableHighAccuracy:true,timeout:12000});
+}
+function setG(ok,msg){gpsOk=ok;const s=document.getElementById('gpsStatus');s.className='status '+(ok?'ok':'error');s.textContent=msg;check();}
+function areaClick(){if(!camOn&&!fotoOk)startCam();}
+async function startCam(){
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false});
+    const v=document.createElement('video');v.autoplay=true;v.playsInline=true;v.srcObject=stream;
+    v.style.cssText='width:100%;height:140px;object-fit:cover;';
+    const a=document.getElementById('photoArea');a.innerHTML='';a.appendChild(v);a.onclick=null;
+    document.getElementById('snapBtn').classList.remove('hidden');camOn=true;
+  }catch(e){document.getElementById('photoArea').innerHTML='🚫 Cámara no disponible';}
+}
+function snap(){
+  const v=document.getElementById('photoArea').querySelector('video');if(!v)return;
+  const c=document.createElement('canvas');c.width=v.videoWidth||320;c.height=v.videoHeight||240;
+  c.getContext('2d').drawImage(v,0,0);foto=c.toDataURL('image/jpeg',0.7);
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  const a=document.getElementById('photoArea'),img=document.createElement('img');
+  img.src=foto;img.style.cssText='width:100%;height:140px;object-fit:cover;';
+  a.innerHTML='';a.appendChild(img);
+  document.getElementById('snapBtn').classList.add('hidden');
+  document.getElementById('retryBtn').classList.remove('hidden');
+  fotoOk=true;camOn=false;check();
+}
+function retry(){
+  foto=null;fotoOk=false;camOn=false;
+  document.getElementById('photoArea').innerHTML='<div id="photoOverlay">📷 Toca para abrir cámara</div>';
+  document.getElementById('photoArea').onclick=areaClick;
+  document.getElementById('retryBtn').classList.add('hidden');
+  document.getElementById('snapBtn').classList.add('hidden');check();
+}
+function check(){
+  const n=document.getElementById('nombre').value.trim();
+  document.getElementById('submitBtn').disabled=!(n.length>2&&gpsOk&&fotoOk);
+}
+function enviar(){
+  const nombre=document.getElementById('nombre').value.trim();
+  const hora=new Date().toLocaleString('es-MX',{timeZone:'America/Mexico_City'});
+  document.getElementById('submitBtn').disabled=true;
+  document.getElementById('submitBtn').textContent='ENVIANDO...';
+  fetch(SHEETS_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({nombre,tipo:'PRUEBA',hora,lat:coords?coords.lat:'',lng:coords?coords.lng:'',foto:foto||''})
+  }).catch(()=>{});
+  document.getElementById('formScreen').classList.add('hidden');
+  document.getElementById('successScreen').classList.remove('hidden');
+  document.getElementById('successMsg').textContent=nombre+' · '+hora;
+}
+function reiniciar(){
+  document.getElementById('nombre').value='';
+  foto=null;fotoOk=false;camOn=false;gpsOk=false;coords=null;
+  document.getElementById('photoArea').innerHTML='<div id="photoOverlay">📷 Toca para abrir cámara</div>';
+  document.getElementById('photoArea').onclick=areaClick;
+  document.getElementById('snapBtn').classList.add('hidden');
+  document.getElementById('retryBtn').classList.add('hidden');
+  document.getElementById('submitBtn').disabled=true;
+  document.getElementById('submitBtn').textContent='REGISTRAR';
+  document.getElementById('gpsStatus').className='status pending';
+  document.getElementById('gpsStatus').textContent='📍 Obteniendo ubicación...';
+  document.getElementById('formScreen').classList.remove('hidden');
+  document.getElementById('successScreen').classList.add('hidden');
+  gps();
+}
+gps();
+</script>
+</body>
+</html>
